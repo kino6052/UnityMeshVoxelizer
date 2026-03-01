@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOXELIZER</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --fg: #00ffcc; --fg2: #ff6600;
+    --bg: #050a0f; --panel: rgba(5,15,20,0.88); --border: rgba(0,255,204,0.22);
+  }
+  body { background: var(--bg); color: var(--fg); font-family: 'Share Tech Mono', monospace; overflow: hidden; height: 100vh; width: 100vw; }
+  #canvas-container { position: fixed; inset: 0; z-index: 0; }
+  canvas { display: block; }
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 100;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.025) 2px, rgba(0,0,0,0.025) 4px);
+  }
+  .panel { position: fixed; z-index: 10; background: var(--panel); border: 1px solid var(--border); backdrop-filter: blur(10px); padding: 12px 20px; }
+  #top-bar {
+    top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 24px;
+    border-top: none; border-left: none; border-right: none; padding: 10px 24px;
+  }
+  .title { font-family: 'Orbitron', monospace; font-weight: 900; font-size: 18px; letter-spacing: 0.22em; text-shadow: 0 0 18px rgba(0,255,204,0.55); }
+  .title span { color: var(--fg2); }
+  .stat-group { display: flex; gap: 20px; flex: 1; justify-content: center; }
+  .stat { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  .stat-label { font-size: 8px; letter-spacing: 0.15em; color: rgba(0,255,204,0.45); text-transform: uppercase; }
+  .stat-value { font-size: 16px; font-family: 'Orbitron', monospace; font-weight: 700; }
+  .stat-value.orange { color: var(--fg2); }
+  #controls {
+    bottom: 0; left: 0; right: 0; display: flex; gap: 24px; justify-content: center; align-items: center;
+    border-bottom: none; border-left: none; border-right: none; padding: 8px 24px;
+    font-size: 10px; color: rgba(0,255,204,0.5); letter-spacing: 0.06em;
+  }
+  .key {
+    display: inline-block; background: rgba(0,255,204,0.1); border: 1px solid rgba(0,255,204,0.28);
+    border-radius: 3px; padding: 0 5px; color: var(--fg); font-size: 9px; margin-right: 2px;
+  }
+  #side-panel { top: 52px; right: 0; width: 195px; border-right: none; font-size: 10.5px; line-height: 1.9; color: rgba(0,255,204,0.58); }
+  .section-title {
+    font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 0.2em;
+    color: rgba(0,255,204,0.38); border-bottom: 1px solid var(--border); padding-bottom: 5px; margin-bottom: 7px;
+  }
+  #lod-display {
+    font-family: 'Orbitron', monospace; font-size: 26px; font-weight: 900; color: var(--fg2);
+    text-align: center; text-shadow: 0 0 24px rgba(255,102,0,0.45); margin: 6px 0;
+  }
+  #progress-bar { width: 100%; height: 3px; background: rgba(0,255,204,0.08); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+  #progress-fill { height: 100%; background: linear-gradient(90deg, var(--fg2), var(--fg)); width: 0%; transition: width 0.15s; box-shadow: 0 0 6px var(--fg); }
+  #status-msg { font-size: 9px; color: rgba(0,255,204,0.45); text-align: center; margin-top: 5px; min-height: 13px; }
+  .grid-line { display: flex; justify-content: space-between; }
+  .corner { position: fixed; z-index: 5; width: 36px; height: 36px; opacity: 0.35; }
+  .corner.tl { top: 50px; left: 0; border-top: 2px solid var(--fg); border-left: 2px solid var(--fg); }
+  .corner.tr { top: 50px; right: 0; border-top: 2px solid var(--fg); border-right: 2px solid var(--fg); }
+  .corner.bl { bottom: 38px; left: 0; border-bottom: 2px solid var(--fg); border-left: 2px solid var(--fg); }
+  .corner.br { bottom: 38px; right: 0; border-bottom: 2px solid var(--fg); border-right: 2px solid var(--fg); }
+  #timing { font-size: 9px; color: rgba(255,102,0,0.6); text-align: right; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div class="corner tl"></div><div class="corner tr"></div>
+<div class="corner bl"></div><div class="corner br"></div>
+
+<div class="panel" id="top-bar">
+  <div class="title">VOX<span>EL</span>IZER</div>
+  <div class="stat-group">
+    <div class="stat"><div class="stat-label">Voxels</div><div class="stat-value" id="stat-voxels">-</div></div>
+    <div class="stat"><div class="stat-label">Grid</div><div class="stat-value" id="stat-grid">-</div></div>
+    <div class="stat"><div class="stat-label">Voxel Size</div><div class="stat-value orange" id="stat-voxelsize">-</div></div>
+    <div class="stat"><div class="stat-label">Visible Tris</div><div class="stat-value" id="stat-faces">-</div></div>
+    <div class="stat"><div class="stat-label">Culled Tris</div><div class="stat-value orange" id="stat-hidden">-</div></div>
+    <div class="stat"><div class="stat-label">Fill %</div><div class="stat-value" id="stat-fill">-</div></div>
+  </div>
+</div>
+
+<div class="panel" id="side-panel">
+  <div class="section-title">LEVEL OF DETAIL</div>
+  <div id="lod-display">4</div>
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+  <div id="status-msg">Loading...</div>
+  <div id="timing"></div>
+
+  <div class="section-title" style="margin-top:14px">MESH INFO</div>
+  <div class="grid-line"><span>Vertices</span><span id="info-verts">-</span></div>
+  <div class="grid-line"><span>Triangles</span><span id="info-tris">-</span></div>
+  <div class="grid-line"><span>Bounds X</span><span id="info-bx">-</span></div>
+  <div class="grid-line"><span>Bounds Y</span><span id="info-by">-</span></div>
+  <div class="grid-line"><span>Bounds Z</span><span id="info-bz">-</span></div>
+
+  <div class="section-title" style="margin-top:14px">RENDER</div>
+  <div id="mode-display" style="font-size:10px;color:var(--fg2)">Visible faces only</div>
+</div>
+
+<div class="panel" id="controls">
+  <span><kbd class="key">up</kbd><kbd class="key">dn</kbd> LOD</span>
+  <span><kbd class="key">W</kbd><kbd class="key">A</kbd><kbd class="key">S</kbd><kbd class="key">D</kbd> Orbit</span>
+  <span><kbd class="key">Q</kbd><kbd class="key">E</kbd> Zoom</span>
+  <span><kbd class="key">R</kbd> Reset</span>
+  <span><kbd class="key">Space</kbd> Wireframe</span>
+  <span><kbd class="key">C</kbd> Color mode</span>
+  <span><kbd class="key">X</kbd> Toggle cull</span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// =============================================================================
+// THREE.JS SETUP
+// =============================================================================
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x050a0f);
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.001, 1000);
+scene.add(new THREE.AmbientLight(0x88ffee, 0.4));
+const dLight = new THREE.DirectionalLight(0xffffff, 0.9);
+dLight.position.set(3, 6, 4);
+scene.add(dLight);
+const dLight2 = new THREE.DirectionalLight(0xff8833, 0.35);
+dLight2.position.set(-4, -2, -5);
+scene.add(dLight2);
+scene.add(new THREE.GridHelper(4, 20, 0x002222, 0x001515));
+
+let orbit = { theta: 0.5, phi: 1.1, radius: 3.2 };
+function updateCamera() {
+  camera.position.set(
+    orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta),
+    orbit.radius * Math.cos(orbit.phi),
+    orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta)
+  );
+  camera.lookAt(0, 0, 0);
+}
+updateCamera();
+
+// =============================================================================
+// OBJ PARSER
+// =============================================================================
+function parseOBJ(text) {
+  const positions = [];
+  const indices = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.charCodeAt(0) === 118 && l.charCodeAt(1) === 32) { // 'v '
+      const p = l.split(' ');
+      positions.push(+p[1], +p[2], +p[3]);
+    } else if (l.charCodeAt(0) === 102 && l.charCodeAt(1) === 32) { // 'f '
+      const p = l.trimEnd().split(' ');
+      const fv = [];
+      for (let j = 1; j < p.length; j++) fv.push(parseInt(p[j]) - 1);
+      for (let j = 1; j < fv.length - 1; j++)
+        indices.push(fv[0], fv[j], fv[j+1]);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  geo.computeBoundingBox();
+  return geo;
+}
+
+// =============================================================================
+// SPATIAL GRID (BVH-lite): buckets triangles into grid cells
+// Reduces per-voxel triangle testing from O(T) to O(T/N^3) average
+// =============================================================================
+function buildTriangleBuckets(posAttr, idxAttr, gridN, origin, voxelSize) {
+  const triCount = idxAttr ? idxAttr.count / 3 : posAttr.count / 3;
+  const cells = new Array(gridN * gridN * gridN); // sparse — only allocate used
+  const invSize = 1.0 / voxelSize;
+  const GN2 = gridN * gridN;
+
+  // Pre-flatten triangle positions into typed array for cache efficiency
+  const tv = new Float32Array(triCount * 9);
+  for (let ti = 0; ti < triCount; ti++) {
+    const ia = idxAttr ? idxAttr.getX(ti*3)   : ti*3;
+    const ib = idxAttr ? idxAttr.getX(ti*3+1) : ti*3+1;
+    const ic = idxAttr ? idxAttr.getX(ti*3+2) : ti*3+2;
+    const o = ti * 9;
+    tv[o]   = posAttr.getX(ia); tv[o+1] = posAttr.getY(ia); tv[o+2] = posAttr.getZ(ia);
+    tv[o+3] = posAttr.getX(ib); tv[o+4] = posAttr.getY(ib); tv[o+5] = posAttr.getZ(ib);
+    tv[o+6] = posAttr.getX(ic); tv[o+7] = posAttr.getY(ic); tv[o+8] = posAttr.getZ(ic);
+  }
+
+  for (let ti = 0; ti < triCount; ti++) {
+    const o = ti * 9;
+    const ax=tv[o],ay=tv[o+1],az=tv[o+2],bx=tv[o+3],by=tv[o+4],bz=tv[o+5],cx=tv[o+6],cy=tv[o+7],cz=tv[o+8];
+
+    const x0 = Math.max(0, Math.floor((Math.min(ax,bx,cx) - origin.x) * invSize));
+    const y0 = Math.max(0, Math.floor((Math.min(ay,by,cy) - origin.y) * invSize));
+    const z0 = Math.max(0, Math.floor((Math.min(az,bz,cz) - origin.z) * invSize));
+    const x1 = Math.min(gridN-1, Math.floor((Math.max(ax,bx,cx) - origin.x) * invSize));
+    const y1 = Math.min(gridN-1, Math.floor((Math.max(ay,by,cy) - origin.y) * invSize));
+    const z1 = Math.min(gridN-1, Math.floor((Math.max(az,bz,cz) - origin.z) * invSize));
+
+    for (let gx = x0; gx <= x1; gx++)
+      for (let gy = y0; gy <= y1; gy++)
+        for (let gz = z0; gz <= z1; gz++) {
+          const ci = gx * GN2 + gy * gridN + gz;
+          if (!cells[ci]) cells[ci] = [];
+          cells[ci].push(ti);
+        }
+  }
+  return { cells, tv, GN2 };
+}
+
+// =============================================================================
+// SAT TRIANGLE-AABB: fully inlined, scalar, no object allocation
+// =============================================================================
+function triBoxOverlap(vcx, vcy, vcz, h, tv, o) {
+  // translate verts to box-centered space
+  const v0x=tv[o]  -vcx, v0y=tv[o+1]-vcy, v0z=tv[o+2]-vcz;
+  const v1x=tv[o+3]-vcx, v1y=tv[o+4]-vcy, v1z=tv[o+5]-vcz;
+  const v2x=tv[o+6]-vcx, v2y=tv[o+7]-vcy, v2z=tv[o+8]-vcz;
+
+  // AABB face tests (3 separating axes)
+  if (Math.max(v0x,v1x,v2x) < -h || Math.min(v0x,v1x,v2x) > h) return false;
+  if (Math.max(v0y,v1y,v2y) < -h || Math.min(v0y,v1y,v2y) > h) return false;
+  if (Math.max(v0z,v1z,v2z) < -h || Math.min(v0z,v1z,v2z) > h) return false;
+
+  // Edge vectors
+  const e0x=v1x-v0x, e0y=v1y-v0y, e0z=v1z-v0z;
+  const e1x=v2x-v1x, e1y=v2y-v1y, e1z=v2z-v1z;
+  const e2x=v0x-v2x, e2y=v0y-v2y, e2z=v0z-v2z;
+
+  // Triangle normal test
+  const nx=e0y*e1z-e0z*e1y, ny=e0z*e1x-e0x*e1z, nz=e0x*e1y-e0y*e1x;
+  const r=h*(Math.abs(nx)+Math.abs(ny)+Math.abs(nz));
+  if (Math.abs(nx*v0x+ny*v0y+nz*v0z) > r) return false;
+
+  // 9 edge-cross-product tests (fully inlined)
+  function axisTest(ax,ay,az) {
+    const p0=ax*v0x+ay*v0y+az*v0z, p1=ax*v1x+ay*v1y+az*v1z, p2=ax*v2x+ay*v2y+az*v2z;
+    const rr=h*(Math.abs(ax)+Math.abs(ay)+Math.abs(az));
+    return !(Math.max(p0,p1,p2) < -rr || Math.min(p0,p1,p2) > rr);
+  }
+  if (!axisTest(0,-e0z,e0y)) return false; if (!axisTest(0,-e1z,e1y)) return false; if (!axisTest(0,-e2z,e2y)) return false;
+  if (!axisTest(e0z,0,-e0x)) return false; if (!axisTest(e1z,0,-e1x)) return false; if (!axisTest(e2z,0,-e2x)) return false;
+  if (!axisTest(-e0y,e0x,0)) return false; if (!axisTest(-e1y,e1x,0)) return false; if (!axisTest(-e2y,e2x,0)) return false;
+
+  return true;
+}
+
+// =============================================================================
+// MAIN VOXELIZER
+// Strategy:
+//   1. Bucket triangles into spatial grid (BVH-lite) — O(T * avg_bucket_size)
+//   2. Per voxel: only test triangles in its bucket — O(1) average
+//   3. Flood-fill exterior from padded border — O(N^3), avoids ray casting entirely
+//   4. Remaining unknown cells = interior
+// =============================================================================
+function voxelizeMesh(geometry, level) {
+  const gridN = 1 << level; // 2^level
+
+  geometry.computeBoundingBox();
+  const bb = geometry.boundingBox;
+  const sz = new THREE.Vector3(); bb.getSize(sz);
+  const ctr = new THREE.Vector3(); bb.getCenter(ctr);
+
+  const maxDim = Math.max(sz.x, sz.y, sz.z);
+  const voxelSize = maxDim / gridN;
+  const halfVox = voxelSize * 0.5;
+
+  // Pad grid by 1 on each side so flood-fill can wrap fully around the model
+  const padN = gridN + 2;
+  const GN2 = padN * padN;
+  const origin = new THREE.Vector3(
+    ctr.x - maxDim * 0.5 - voxelSize,
+    ctr.y - maxDim * 0.5 - voxelSize,
+    ctr.z - maxDim * 0.5 - voxelSize
+  );
+
+  const posAttr = geometry.attributes.position;
+  const idxAttr = geometry.index;
+
+  // Build spatial grid over the padded dimensions
+  const { cells, tv, GN2: bGN2 } = buildTriangleBuckets(posAttr, idxAttr, padN, origin, voxelSize);
+
+  // State grid: 0=unknown(interior candidate), 1=surface, 2=exterior
+  const SURFACE=1, EXTERIOR=2;
+  const grid = new Uint8Array(padN * padN * padN);
+
+  // -- Pass 1: Surface marking --
+  for (let gx = 0; gx < padN; gx++) {
+    for (let gy = 0; gy < padN; gy++) {
+      for (let gz = 0; gz < padN; gz++) {
+        const ci = gx * GN2 + gy * padN + gz;
+        const bucket = cells[ci];
+        if (!bucket) continue;
+        const vcx = origin.x + (gx + 0.5) * voxelSize;
+        const vcy = origin.y + (gy + 0.5) * voxelSize;
+        const vcz = origin.z + (gz + 0.5) * voxelSize;
+        for (let k = 0; k < bucket.length; k++) {
+          if (triBoxOverlap(vcx, vcy, vcz, halfVox, tv, bucket[k] * 9)) {
+            grid[ci] = SURFACE;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // -- Pass 2: BFS flood-fill exterior from all border cells --
+  // Use a flat Int32Array queue for speed
+  const queueSize = padN * padN * padN * 3;
+  const queue = new Int32Array(queueSize);
+  let qHead = 0, qTail = 0;
+
+  function enqueue(x, y, z) {
+    grid[x * GN2 + y * padN + z] = EXTERIOR;
+    queue[qTail++] = x; queue[qTail++] = y; queue[qTail++] = z;
+  }
+
+  // Seed from all 6 border faces
+  for (let a = 0; a < padN; a++) {
+    for (let b = 0; b < padN; b++) {
+      if (grid[0*GN2+a*padN+b] === 0) enqueue(0, a, b);
+      if (grid[(padN-1)*GN2+a*padN+b] === 0) enqueue(padN-1, a, b);
+      if (grid[a*GN2+0*padN+b] === 0) enqueue(a, 0, b);
+      if (grid[a*GN2+(padN-1)*padN+b] === 0) enqueue(a, padN-1, b);
+      if (grid[a*GN2+b*padN+0] === 0) enqueue(a, b, 0);
+      if (grid[a*GN2+b*padN+(padN-1)] === 0) enqueue(a, b, padN-1);
+    }
+  }
+
+  while (qHead < qTail) {
+    const cx = queue[qHead++], cy = queue[qHead++], cz = queue[qHead++];
+    const nx1=cx+1, nx2=cx-1, ny1=cy+1, ny2=cy-1, nz1=cz+1, nz2=cz-1;
+    if (nx1<padN && grid[nx1*GN2+cy*padN+cz]===0) enqueue(nx1,cy,cz);
+    if (nx2>=0   && grid[nx2*GN2+cy*padN+cz]===0) enqueue(nx2,cy,cz);
+    if (ny1<padN && grid[cx*GN2+ny1*padN+cz]===0) enqueue(cx,ny1,cz);
+    if (ny2>=0   && grid[cx*GN2+ny2*padN+cz]===0) enqueue(cx,ny2,cz);
+    if (nz1<padN && grid[cx*GN2+cy*padN+nz1]===0) enqueue(cx,cy,nz1);
+    if (nz2>=0   && grid[cx*GN2+cy*padN+nz2]===0) enqueue(cx,cy,nz2);
+  }
+
+  // -- Collect filled voxels (offset by 1 for padding) --
+  // Store as flat typed arrays for speed
+  const maxVox = gridN * gridN * gridN;
+  const vxArr = new Float32Array(maxVox), vyArr = new Float32Array(maxVox), vzArr = new Float32Array(maxVox);
+  const xiArr = new Uint16Array(maxVox), yiArr = new Uint16Array(maxVox), ziArr = new Uint16Array(maxVox);
+  const insideArr = new Uint8Array(maxVox);
+  let count = 0, surfCount = 0, intCount = 0;
+
+  for (let gx = 1; gx <= gridN; gx++) {
+    for (let gy = 1; gy <= gridN; gy++) {
+      for (let gz = 1; gz <= gridN; gz++) {
+        const state = grid[gx * GN2 + gy * padN + gz];
+        if (state === SURFACE || state === 0) { // 0=unknown=interior
+          vxArr[count] = origin.x + (gx + 0.5) * voxelSize;
+          vyArr[count] = origin.y + (gy + 0.5) * voxelSize;
+          vzArr[count] = origin.z + (gz + 0.5) * voxelSize;
+          xiArr[count] = gx - 1;
+          yiArr[count] = gy - 1;
+          ziArr[count] = gz - 1;
+          insideArr[count] = state === 0 ? 1 : 0;
+          if (state === 0) intCount++; else surfCount++;
+          count++;
+        }
+      }
+    }
+  }
+
+  return {
+    vxArr, vyArr, vzArr, xiArr, yiArr, ziArr, insideArr,
+    count, voxelSize, gridN, surface: surfCount, interior: intCount
+  };
+}
+
+// =============================================================================
+// VISIBLE-FACE MESH BUILDER
+//
+// Core insight: for a solid voxel object, the vast majority of faces are shared
+// between two filled voxels and are thus never visible. We only generate faces
+// where a filled voxel is adjacent to an empty one.
+//
+// For a 64^3 fully-filled cube: 64^3 * 6 = 1,572,864 total faces
+//                                but only 6 * 64^2 = 24,576 are on the surface
+// That's a 64x reduction in geometry.
+// =============================================================================
+
+// Cube face definitions: per face: normal + 4 corner offsets (in unit cube space)
+// Winding: CCW when viewed from outside
+const FACES = [
+  { n:[1,0,0],  v:[[0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5], [0.5, -0.5, 0.5]] },   // +X
+  { n:[-1,0,0], v:[[-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, -0.5]] }, // -X
+  { n:[0,1,0],  v:[[-0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5]] },    // +Y
+  { n:[0,-1,0], v:[[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5]] }, // -Y
+  { n:[0,0,1],  v:[[-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]] },    // +Z
+  { n:[0,0,-1], v:[[0.5, -0.5, -0.5], [-0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5]] }, // -Z
+];
+const NEIGHBOR_DELTA = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+
+function buildVisibleFaceMesh(voxelData, colorMode, cull) {
+  const { vxArr, vyArr, vzArr, xiArr, yiArr, ziArr, insideArr, count, voxelSize, gridN } = voxelData;
+
+  // Build occupancy lookup
+  const GN1 = gridN + 2;
+  const occ = new Uint8Array(GN1 * GN1 * GN1);
+  for (let i = 0; i < count; i++) {
+    occ[(xiArr[i]+1)*GN1*GN1 + (yiArr[i]+1)*GN1 + ziArr[i]+1] = 1;
+  }
+
+  // Estimate max buffer size: worst case every voxel contributes all 6 faces
+  // Each face = 4 verts, 2 tris. Allocate then trim.
+  const maxFaces = count * 6;
+  const pos  = new Float32Array(maxFaces * 4 * 3);
+  const nrm  = new Float32Array(maxFaces * 4 * 3);
+  const col  = new Float32Array(maxFaces * 4 * 3);
+  const idx  = new Uint32Array(maxFaces * 6); // 2 tris per face
+
+  let vi = 0, ii = 0; // vertex index, index index
+  let visibleFaces = 0, culledFaces = 0;
+
+  const color = new THREE.Color();
+
+  for (let i = 0; i < count; i++) {
+    const vx = vxArr[i], vy = vyArr[i], vz = vzArr[i];
+    const xi = xiArr[i], yi = yiArr[i], zi = ziArr[i];
+    const inside = insideArr[i];
+
+    // Color
+    if (colorMode === 0) {
+      color.set(inside ? 0xff6600 : 0x00ffcc);
+    } else if (colorMode === 1) {
+      color.setHSL(0.5 - (yi / gridN) * 0.35, 1.0, 0.4 + (yi / gridN) * 0.3);
+    } else {
+      color.setHSL(((xi + zi) / (gridN * 2)) * 0.8, 0.9, 0.5);
+    }
+    const cr = color.r, cg = color.g, cb = color.b;
+
+    for (let f = 0; f < 6; f++) {
+      const [ddx, ddy, ddz] = NEIGHBOR_DELTA[f];
+      const nx = xi + ddx, ny = yi + ddy, nz = zi + ddz;
+      const neighborFilled = (
+        nx >= 0 && nx < gridN && ny >= 0 && ny < gridN && nz >= 0 && nz < gridN &&
+        occ[(nx+1)*GN1*GN1 + (ny+1)*GN1 + nz+1]
+      );
+
+      if (cull && neighborFilled) { culledFaces++; continue; }
+
+      visibleFaces++;
+      const { n, v } = FACES[f];
+      const voff = vi;
+
+      for (let k = 0; k < 4; k++) {
+        const base = (vi) * 3;
+        pos[base]   = vx + v[k][0] * voxelSize;
+        pos[base+1] = vy + v[k][1] * voxelSize;
+        pos[base+2] = vz + v[k][2] * voxelSize;
+        nrm[base]   = n[0]; nrm[base+1] = n[1]; nrm[base+2] = n[2];
+        col[base]   = cr;   col[base+1] = cg;   col[base+2] = cb;
+        vi++;
+      }
+      // Two triangles: 0,1,2 and 0,2,3
+      idx[ii++] = voff;   idx[ii++] = voff+1; idx[ii++] = voff+2;
+      idx[ii++] = voff;   idx[ii++] = voff+2; idx[ii++] = voff+3;
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, vi*3), 3));
+  geo.setAttribute('normal',   new THREE.BufferAttribute(nrm.subarray(0, vi*3), 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(col.subarray(0, vi*3), 3));
+  geo.setIndex(new THREE.BufferAttribute(idx.subarray(0, ii), 1));
+
+  return { geo, visibleTris: visibleFaces * 2, culledTris: culledFaces * 2 };
+}
+
+// =============================================================================
+// SCENE MANAGEMENT
+// =============================================================================
+let voxelMesh = null;
+let currentLevel = 4;
+let meshGeometry = null;
+let wireframe = false;
+let colorMode = 0;
+let cullFaces = true;
+let lastVoxelData = null;
+
+function buildSceneMesh(voxelData) {
+  if (voxelMesh) {
+    scene.remove(voxelMesh);
+    voxelMesh.geometry.dispose();
+    voxelMesh.material.dispose();
+    voxelMesh = null;
+  }
+  const { geo, visibleTris, culledTris } = buildVisibleFaceMesh(voxelData, colorMode, cullFaces);
+  voxelMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.52, metalness: 0.4, wireframe,
+  }));
+  scene.add(voxelMesh);
+  document.getElementById('stat-faces').textContent = visibleTris.toLocaleString();
+  document.getElementById('stat-hidden').textContent = culledTris.toLocaleString();
+  document.getElementById('mode-display').textContent = cullFaces ? 'Visible faces only' : 'All faces';
+}
+
+// =============================================================================
+// LOAD + VOXELIZE PIPELINE
+// =============================================================================
+const OBJ_URL = 'https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/refs/heads/master/data/xyzrgb_dragon.obj';
+
+async function loadAndVoxelize(level) {
+  setStatus('Fetching model...'); prog(8);
+  let text;
+  try {
+    text = await (await fetch(OBJ_URL)).text();
+  } catch(e) {
+    setStatus('Fetch failed, using sphere');
+    meshGeometry = new THREE.SphereGeometry(1, 32, 32);
+    await revoxelize(level); return;
+  }
+  setStatus('Parsing OBJ...'); prog(20); await tick();
+
+  try { meshGeometry = parseOBJ(text); }
+  catch(e) { meshGeometry = new THREE.SphereGeometry(1, 32, 32); }
+
+  // Normalize to [-1,1]^3
+  meshGeometry.computeBoundingBox();
+  const bb = meshGeometry.boundingBox;
+  const bsz = new THREE.Vector3(); bb.getSize(bsz);
+  const bctr = new THREE.Vector3(); bb.getCenter(bctr);
+  const sc = 2 / Math.max(bsz.x, bsz.y, bsz.z);
+  const pa = meshGeometry.attributes.position;
+  for (let i = 0; i < pa.count; i++)
+    pa.setXYZ(i, (pa.getX(i)-bctr.x)*sc, (pa.getY(i)-bctr.y)*sc, (pa.getZ(i)-bctr.z)*sc);
+  pa.needsUpdate = true;
+  meshGeometry.computeBoundingBox();
+  meshGeometry.computeVertexNormals();
+
+  const idx = meshGeometry.index;
+  document.getElementById('info-verts').textContent = pa.count;
+  document.getElementById('info-tris').textContent = idx ? (idx.count/3)|0 : (pa.count/3)|0;
+  const s2 = new THREE.Vector3(); meshGeometry.boundingBox.getSize(s2);
+  document.getElementById('info-bx').textContent = s2.x.toFixed(3);
+  document.getElementById('info-by').textContent = s2.y.toFixed(3);
+  document.getElementById('info-bz').textContent = s2.z.toFixed(3);
+
+  await revoxelize(level);
+}
+
+async function revoxelize(level) {
+  setStatus(`Voxelizing ${1<<level}^3...`); prog(35);
+  document.getElementById('lod-display').textContent = level;
+  await tick();
+
+  const t0 = performance.now();
+  let result;
+  try { result = voxelizeMesh(meshGeometry, level); }
+  catch(e) { setStatus('Error: '+e.message); console.error(e); return; }
+  const t1 = performance.now();
+
+  prog(80); await tick();
+  lastVoxelData = result;
+
+  const t2 = performance.now();
+  buildSceneMesh(result);
+  const t3 = performance.now();
+
+  const total = (1<<level)**3;
+  document.getElementById('stat-voxels').textContent = result.count.toLocaleString();
+  document.getElementById('stat-grid').textContent = `${1<<level}^3`;
+  document.getElementById('stat-voxelsize').textContent = result.voxelSize.toFixed(4);
+  document.getElementById('stat-fill').textContent = ((result.count/total)*100).toFixed(2)+'%';
+  document.getElementById('timing').textContent = `vox:${(t1-t0).toFixed(0)}ms mesh:${(t3-t2).toFixed(0)}ms`;
+
+  prog(100);
+  setStatus(`${result.surface} surf + ${result.interior} interior`);
+  setTimeout(()=>prog(0), 700);
+}
+
+function setStatus(s) { document.getElementById('status-msg').textContent = s; }
+function prog(p) { document.getElementById('progress-fill').style.width = p+'%'; }
+function tick() { return new Promise(r => setTimeout(r, 16)); }
+
+// =============================================================================
+// INPUT
+// =============================================================================
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key==='ArrowUp'||e.key==='ArrowRight')  { currentLevel=Math.min(8,currentLevel+1); if(meshGeometry) revoxelize(currentLevel); }
+  if (e.key==='ArrowDown'||e.key==='ArrowLeft') { currentLevel=Math.max(4,currentLevel-1); if(meshGeometry) revoxelize(currentLevel); }
+  if (e.key===' ')  { e.preventDefault(); wireframe=!wireframe; if(voxelMesh) voxelMesh.material.wireframe=wireframe; }
+  if (e.key==='r'||e.key==='R') { orbit={theta:0.5,phi:1.1,radius:3.2}; updateCamera(); }
+  if (e.key==='c'||e.key==='C') { colorMode=(colorMode+1)%3; if(lastVoxelData) buildSceneMesh(lastVoxelData); }
+  if (e.key==='x'||e.key==='X') { cullFaces=!cullFaces; if(lastVoxelData) buildSceneMesh(lastVoxelData); }
+});
+window.addEventListener('keyup', e => { keys[e.key]=false; });
+
+let isDragging=false, lastMouse={x:0,y:0};
+renderer.domElement.addEventListener('mousedown', e => { isDragging=true; lastMouse={x:e.clientX,y:e.clientY}; });
+window.addEventListener('mouseup', ()=>isDragging=false);
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  orbit.theta -= (e.clientX-lastMouse.x)*0.008;
+  orbit.phi = Math.max(0.1, Math.min(Math.PI-0.1, orbit.phi+(e.clientY-lastMouse.y)*0.008));
+  lastMouse={x:e.clientX,y:e.clientY};
+  updateCamera();
+});
+renderer.domElement.addEventListener('wheel', e => {
+  orbit.radius = Math.max(1, Math.min(10, orbit.radius+e.deltaY*0.005));
+  updateCamera();
+}, {passive:true});
+
+function handleKeys() {
+  let c=false;
+  if(keys['a']||keys['A']){orbit.theta-=0.02;c=true;}
+  if(keys['d']||keys['D']){orbit.theta+=0.02;c=true;}
+  if(keys['w']||keys['W']){orbit.phi=Math.max(0.1,orbit.phi-0.02);c=true;}
+  if(keys['s']||keys['S']){orbit.phi=Math.min(Math.PI-0.1,orbit.phi+0.02);c=true;}
+  if(keys['q']||keys['Q']){orbit.radius=Math.max(1,orbit.radius-0.05);c=true;}
+  if(keys['e']||keys['E']){orbit.radius=Math.min(10,orbit.radius+0.05);c=true;}
+  if(c) updateCamera();
+}
+
+function animate() { requestAnimationFrame(animate); handleKeys(); renderer.render(scene,camera); }
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+loadAndVoxelize(currentLevel);
+</script>
+</body>
+</html>
